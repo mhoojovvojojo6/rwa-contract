@@ -129,6 +129,37 @@ module rwa::rwa {
         });
     }
 
+    // 更改rwa项目管理员
+    public entry fun set_rwa_project_admin<X, Y>(config: &mut RwaConfig, project_id: vector<u8>, new_project_admin: address, ctx: &mut tx_context::TxContext) {
+        assert!(config.version == VERSION, EVersionNotMatched);
+
+        let sender = tx_context::sender(ctx);
+
+        // 判断project_id是否存在
+        assert!(object_bag::contains(&config.projects, project_id), ERwaProjectNotFound);
+
+        let project = object_bag::borrow_mut<vector<u8>, RwaProject<X, Y>>(&mut config.projects, project_id);
+        // 判断是否有权限
+        assert!(project.admin == sender, ENotProjectAdmin);
+        project.admin = new_project_admin;
+    }
+
+    // 更改rwa项目财务
+    public entry fun set_rwa_project_financier<X, Y>(config: &mut RwaConfig, project_id: vector<u8>, new_project_financier: address, ctx: &mut tx_context::TxContext) {
+        assert!(config.version == VERSION, EVersionNotMatched);
+
+        let sender = tx_context::sender(ctx);
+
+        // 判断project_id是否存在
+        assert!(object_bag::contains(&config.projects, project_id), ERwaProjectNotFound);
+
+        let project = object_bag::borrow_mut<vector<u8>, RwaProject<X, Y>>(&mut config.projects, project_id);
+        // 判断是否有权限
+        assert!(project.admin == sender, ENotProjectAdmin);
+        project.financier = new_project_financier;
+    }
+
+
     // 追加rwa project token
     public entry fun increase_rwa_project_token<X, Y>(config: &mut RwaConfig, project_id: vector<u8>, x_tokens: vector<Coin<X>>, ctx: &mut tx_context::TxContext) {
         assert!(config.version == VERSION, EVersionNotMatched);
