@@ -7,6 +7,8 @@ module rwa::rwa {
     use sui::balance::{Self, Balance};
     use std::vector;
     use sui::vec_set::{Self, VecSet};
+    use sui::coin::{Self, Coin};
+    use rwa::utils;
 
     // 版本
     const VERSION: u64 = 0;
@@ -19,6 +21,8 @@ module rwa::rwa {
     const ENotRwaWhitelist: u64 = 10004;                // 非RWA白名单，不允许发布RWA项目
     const EAlreadyRwaWhitelist: u64 = 10005;            // 已经是RWA白名单
     const EProjectIdExists: u64 = 10006;                // project_id重复
+    const ERwaProjectNotFound: u64 = 10007;             // RWA project项目未找到
+    const ECoinsEmpty: u64 = 10008;                     // 输入vector<Coin>为空
 
     struct RWA has drop {}
 
@@ -123,6 +127,22 @@ module rwa::rwa {
             total_revenue: 0,
             revenue_reserve: balance::zero(),
         });
+    }
 
+    // 追加rwa project token
+    public entry fun increase_rwa_project_token<X, Y>(config: &mut RwaConfig, project_id: vector<u8>, x_tokens: vector<Coin<X>>, ctx: &mut tx_context::TxContext) {
+        assert!(config.version == VERSION, EVersionNotMatched);
+        assert!(!vector::is_empty(&x_tokens), ECoinsEmpty);
+
+        let sender = tx_context::sender(ctx);
+
+        // 判断project_id是否存在
+        assert!(object_bag::contains(&config.projects, project_id), ERwaProjectNotFound);
+
+        let project = object_bag::borrow_mut<vector<u8>, RwaProject<X, Y>>(&mut config.projects, project_id);
+        
+        let x_balance = utils::coins_into_balance(x_tokens);
+        project.rwa_token_total_supply = project.rwa_token_total_supply + balance::value(&x_balance);
+        balance::join(&mut project.rwa_token_reserve, x_balance);
     }
 }

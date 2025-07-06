@@ -4,9 +4,21 @@ module rwa::utils {
     use sui::tx_context::{Self, TxContext};
     use sui::pay;
     use sui::transfer;
+    use sui::balance::{Self, Balance};
 
     // 错误码
     const ENotEnoughBalance: u64 = 101001; // 没有足够的额度
+
+    public fun coins_into_balance<T>(cs: vector<Coin<T>>): Balance<T> {
+        let result = balance::zero();
+        while (!vector::is_empty(&cs)) {
+            let c = vector::pop_back(&mut cs);
+            balance::join(&mut result, coin::into_balance(c));
+        };
+        vector::destroy_empty(cs);
+
+        result
+    }
 
     public fun merge_coins<T>(cs: vector<Coin<T>>, ctx: &mut TxContext): Coin<T> {
         if (vector::length(&cs) == 0) {
