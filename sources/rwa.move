@@ -210,7 +210,7 @@ module rwa::rwa {
         project.total_revenue = project.total_revenue + balance::value(&spend_y_balance);
         balance::join(&mut project.revenue_reserve, spend_y_balance);
 
-        // 扣除合约账户的Coin<X>，花费的Coin<X>
+        // 扣除合约账户的Balance<Y>
         let spend_x_balance = balance::split(&mut project.rwa_token_reserve, buy_num);
         // 转为Coin<X>，然后转给用户
         let spend_x_tokens = coin::from_balance(spend_x_balance, ctx);
