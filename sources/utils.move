@@ -45,7 +45,7 @@ module rwa::utils {
         c_out
     }
 
-    public fun transfer_or_destroy_zero<X>(c: Coin<X>, addr: address) {
+    public fun transfer_or_destroy_zero<T>(c: Coin<T>, addr: address) {
         if (coin::value(&c) > 0) {
             transfer::public_transfer(c, addr);
         }

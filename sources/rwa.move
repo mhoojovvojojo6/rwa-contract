@@ -204,10 +204,10 @@ module rwa::rwa {
         let amount = ratio::partial(project.price, buy_num);
 
         // 扣除用户的Coin<Y>，花费的Coin<Y>
-        let spend_y_tokens = utils::merge_coins_to_amount_and_transfer_back_rest<Y>(y_tokens, amount, ctx);
+        let spend_y_tokens = utils::merge_coins_to_amount_and_transfer_back_rest(y_tokens, amount, ctx);
         // 将Coin<Y>追加到合约账户中
-        let spend_y_balance = utils::coins_into_balance(spend_y_tokens);
-        project.total_revenue += balance::value(&spend_y_balance);
+        let spend_y_balance = coin::into_balance(spend_y_tokens);
+        project.total_revenue = project.total_revenue + balance::value(&spend_y_balance);
         balance::join(&mut project.revenue_reserve, spend_y_balance);
 
         // 扣除合约账户的Coin<X>，花费的Coin<X>
