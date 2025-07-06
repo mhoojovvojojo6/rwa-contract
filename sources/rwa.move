@@ -9,6 +9,7 @@ module rwa::rwa {
     use sui::vec_set::{Self, VecSet};
     use sui::coin::{Self, Coin};
     use rwa::utils;
+    use rwa::ratio::{Self, Ratio};
 
     // 版本
     const VERSION: u64 = 0;
@@ -23,6 +24,8 @@ module rwa::rwa {
     const EProjectIdExists: u64 = 10006;                // project_id重复
     const ERwaProjectNotFound: u64 = 10007;             // RWA project项目未找到
     const ECoinsEmpty: u64 = 10008;                     // 输入vector<Coin>为空
+    const EBuyNumZero: u64 = 10009;                     // 购买数量为0
+    const ERwaPaused: u64 = 10010;                      // RWA暂停状态
 
     struct RWA has drop {}
 
@@ -49,6 +52,8 @@ module rwa::rwa {
         admin: address,
         // 财务
         financier: address,
+        // RWA价格
+        price: Ratio,
         // RWA代币发行总量
         rwa_token_total_supply: u64,
         // RWA代币剩余量
@@ -106,8 +111,11 @@ module rwa::rwa {
     }
 
     // 发布一个RWA项目
-    public entry fun publish_rwa_project<X, Y>(config: &mut RwaConfig, project_id: vector<u8>, ctx: &mut tx_context::TxContext) {
+    public entry fun publish_rwa_project<X, Y>(config: &mut RwaConfig, project_id: vector<u8>, price_num: u64, price_den: u64, ctx: &mut tx_context::TxContext) {
         assert!(config.version == VERSION, EVersionNotMatched);
+
+        // price_num单价分子部分，price_den单价分母部分，所以price_num/price_den构成单价
+        let price = ratio::ratio(price_num, price_den);
 
         let sender = tx_context::sender(ctx);
         // 非白名单不允许发布RWA项目
@@ -122,6 +130,7 @@ module rwa::rwa {
             project_id,
             admin: sender,
             financier: sender,
+            price: price,
             rwa_token_total_supply: 0,
             rwa_token_reserve: balance::zero(),
             total_revenue: 0,
@@ -175,5 +184,37 @@ module rwa::rwa {
         let x_balance = utils::coins_into_balance(x_tokens);
         project.rwa_token_total_supply = project.rwa_token_total_supply + balance::value(&x_balance);
         balance::join(&mut project.rwa_token_reserve, x_balance);
+    }
+
+    // 购买rwa project token
+    public entry fun buy_rwa_project_token<X, Y>(config: &mut RwaConfig, project_id: vector<u8>, y_tokens: vector<Coin<Y>>, buy_num: u64, ctx: &mut tx_context::TxContext) {
+        assert!(config.version == VERSION, EVersionNotMatched);
+        assert!(buy_num > 0, EBuyNumZero);
+        assert!(!vector::is_empty(&y_tokens), ECoinsEmpty);
+        assert!(!config.paused, ERwaPaused);
+
+        let sender = tx_context::sender(ctx);
+
+        // 判断project_id是否存在
+        assert!(object_bag::contains(&config.projects, project_id), ERwaProjectNotFound);
+
+        let project = object_bag::borrow_mut<vector<u8>, RwaProject<X, Y>>(&mut config.projects, project_id);
+
+        // 计算购买buy_num需要金额
+        let amount = ratio::partial(project.price, buy_num);
+
+        // 扣除用户的Coin<Y>，花费的Coin<Y>
+        let spend_y_tokens = utils::merge_coins_to_amount_and_transfer_back_rest<Y>(y_tokens, amount, ctx);
+        // 将Coin<Y>追加到合约账户中
+        let spend_y_balance = utils::coins_into_balance(spend_y_tokens);
+        project.total_revenue += balance::value(&spend_y_balance);
+        balance::join(&mut project.revenue_reserve, spend_y_balance);
+
+        // 扣除合约账户的Coin<X>，花费的Coin<X>
+        let spend_x_balance = balance::split(&mut project.rwa_token_reserve, buy_num);
+        // 转为Coin<X>，然后转给用户
+        let spend_x_tokens = coin::from_balance(spend_x_balance, ctx);
+        // 转为用户
+        transfer::public_transfer(spend_x_tokens, sender);
     }
 }
