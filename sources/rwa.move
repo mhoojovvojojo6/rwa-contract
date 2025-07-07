@@ -153,6 +153,7 @@ module rwa::rwa {
         let project = object_bag::borrow_mut<vector<u8>, RwaProject<X, Y>>(&mut config.projects, project_id);
         // 判断是否有权限
         assert!(project.admin == sender, ENotProjectAdmin);
+
         project.admin = new_project_admin;
     }
 
@@ -168,7 +169,26 @@ module rwa::rwa {
         let project = object_bag::borrow_mut<vector<u8>, RwaProject<X, Y>>(&mut config.projects, project_id);
         // 判断是否有权限
         assert!(project.admin == sender, ENotProjectAdmin);
+
         project.financier = new_project_financier;
+    }
+
+    // 更改rwa token单价
+    public entry fun set_rwa_project_token_price<X, Y>(config: &mut RwaConfig, project_id: vector<u8>, new_price_num: u64, new_price_den: u64, ctx: &mut tx_context::TxContext) {
+        assert!(config.version == VERSION, EVersionNotMatched);
+        // 新单价
+        let new_price = ratio::ratio(new_price_num, new_price_den);
+
+        let sender = tx_context::sender(ctx);
+
+        // 判断project_id是否存在
+        assert!(object_bag::contains(&config.projects, project_id), ERwaProjectNotFound);
+
+        let project = object_bag::borrow_mut<vector<u8>, RwaProject<X, Y>>(&mut config.projects, project_id);
+        // 判断是否有权限
+        assert!(project.admin == sender, ENotProjectAdmin);
+
+        project.price = new_price;
     }
 
     // 追加rwa project token
@@ -182,6 +202,8 @@ module rwa::rwa {
         assert!(object_bag::contains(&config.projects, project_id), ERwaProjectNotFound);
 
         let project = object_bag::borrow_mut<vector<u8>, RwaProject<X, Y>>(&mut config.projects, project_id);
+        // 判断是否有权限
+        assert!(project.admin == sender, ENotProjectAdmin);
         
         let x_balance = utils::coins_into_balance(x_tokens);
         project.rwa_token_total_supply = project.rwa_token_total_supply + balance::value(&x_balance);
