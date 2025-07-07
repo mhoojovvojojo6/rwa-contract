@@ -110,8 +110,8 @@ module rwa::rwa {
         vec_set::remove(&mut config.whitelist, &user);
     }
 
-    // 发布一个RWA项目
-    public entry fun publish_rwa_project<X, Y>(config: &mut RwaConfig, project_id: vector<u8>, price_num: u64, price_den: u64, ctx: &mut tx_context::TxContext) {
+    // 发布rwa project
+    public entry fun publish_rwa_project<X, Y>(config: &mut RwaConfig, project_id: vector<u8>, price_num: u64, price_den: u64, x_tokens: vector<Coin<X>>, ctx: &mut tx_context::TxContext) {
         assert!(config.version == VERSION, EVersionNotMatched);
 
         // price_num单价分子部分，price_den单价分母部分，所以price_num/price_den构成单价
@@ -124,6 +124,9 @@ module rwa::rwa {
         // 判断project_id是否存在
         assert!(!object_bag::contains(&config.projects, project_id), EProjectIdExists);
 
+        // 初始化token，允许x_tokens为空，这样允许后面再追加
+        let x_balance = utils::coins_into_balance(x_tokens);
+
         // 添加
         object_bag::add(&mut config.projects, project_id, RwaProject<X, Y> {
             id: object::new(ctx),
@@ -131,13 +134,13 @@ module rwa::rwa {
             admin: sender,
             financier: sender,
             price: price,
-            rwa_token_total_supply: 0,
-            rwa_token_reserve: balance::zero(),
+            rwa_token_total_supply: balance::value(&x_balance),
+            rwa_token_reserve: x_balance,
             total_revenue: 0,
             revenue_reserve: balance::zero(),
         });
     }
-
+    
     // 更改rwa项目管理员
     public entry fun set_rwa_project_admin<X, Y>(config: &mut RwaConfig, project_id: vector<u8>, new_project_admin: address, ctx: &mut tx_context::TxContext) {
         assert!(config.version == VERSION, EVersionNotMatched);
@@ -167,7 +170,6 @@ module rwa::rwa {
         assert!(project.admin == sender, ENotProjectAdmin);
         project.financier = new_project_financier;
     }
-
 
     // 追加rwa project token
     public entry fun increase_rwa_project_token<X, Y>(config: &mut RwaConfig, project_id: vector<u8>, x_tokens: vector<Coin<X>>, ctx: &mut tx_context::TxContext) {
