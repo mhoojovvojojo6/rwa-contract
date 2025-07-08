@@ -10,6 +10,7 @@ module rwa::rwa {
     use sui::coin::{Self, Coin};
     use rwa::utils;
     use rwa::ratio::{Self, Ratio};
+    use sui::event;
 
     // 版本
     const VERSION: u64 = 0;
@@ -23,7 +24,7 @@ module rwa::rwa {
     const ENotProjectFinancier: u64 = 10003;            // 非RWA项目财务
     const ENotRwaWhitelist: u64 = 10004;                // 非RWA白名单，不允许发布RWA项目
     const EAlreadyRwaWhitelist: u64 = 10005;            // 已经是RWA白名单
-    const EProjectIdExists: u64 = 10006;                // project_id重复
+    const EProjectIdExists: u64 = 10006;                // project_key重复
     const ERwaProjectNotFound: u64 = 10007;             // RWA project项目未找到
     const ECoinsEmpty: u64 = 10008;                     // 输入vector<Coin>为空
     const EBuyNumZero: u64 = 10009;                     // 购买数量为0
@@ -49,7 +50,7 @@ module rwa::rwa {
     struct RwaProject<phantom X/*rwa project代币*/, phantom Y/*稳定币*/> has key, store {
         id: UID,
         // 项目编号（ObjectBag的KEY）
-        project_id: vector<u8>,
+        project_key: vector<u8>,
         // 项目管理员
         admin: address,
         // 财务
@@ -64,6 +65,30 @@ module rwa::rwa {
         total_revenue: u64,
         // 用户购买RWA代币收入剩余量（因为存在提现/分红等行为，该量总量不等于total_revenue，并且财务也可能充钱进去）
         revenue_reserve: Balance<Y>,        
+    }
+
+    // 事件
+    struct RwaAdminChangedEvent has copy, drop {
+        old_admin: address,
+        new_admin: address
+    }
+    struct RwaPausedChangedEvent has copy, drop {
+        paused: bool
+    }
+    struct RwaWhitelistChangedEvent has copy, drop {
+        user: address,
+        operate: vector<u8>
+    }
+    struct RwaProjectPublishEvent has copy, drop {
+        project_id: ID,
+        project_key: vector<u8>,
+        admin: address,
+        financier: address,
+        price: u64,
+        rwa_token_total_supply: u64,
+        rwa_token_reserve: u64,
+        total_revenue: u64,
+        revenue_reserve: u64
     }
 
     fun init(otw: RWA, ctx: &mut TxContext) {
@@ -81,10 +106,13 @@ module rwa::rwa {
     }
 
     // 转让管理权
-    public entry fun set_rwa_admin(config: &mut RwaConfig, new_rwa_admin: address, ctx: &mut tx_context::TxContext) {
+    public entry fun set_rwa_admin(config: &mut RwaConfig, new_admin: address, ctx: &mut tx_context::TxContext) {
         assert!(config.admin == tx_context::sender(ctx), ENotRWAAdmin);
         assert!(config.version == VERSION, EVersionNotMatched);
-        config.admin = new_rwa_admin;
+
+        let old_admin = config.admin;
+        config.admin = new_admin;
+        event::emit(RwaAdminChangedEvent { old_admin, new_admin });
     }
 
     // 启用或者关闭
@@ -92,6 +120,7 @@ module rwa::rwa {
         assert!(config.admin == tx_context::sender(ctx), ENotRWAAdmin);
         assert!(config.version == VERSION, EVersionNotMatched);
         config.paused = paused;
+        event::emit(RwaPausedChangedEvent { paused });
     }
 
     // 添加白名单
@@ -101,6 +130,7 @@ module rwa::rwa {
         // 白名单已经存在
         assert!(!vec_set::contains(&config.whitelist, &user), EAlreadyRwaWhitelist);
         vec_set::insert(&mut config.whitelist, user);
+        event::emit(RwaWhitelistChangedEvent { user, operate: b"add" })
     }
 
     // 移除白名单
@@ -110,49 +140,65 @@ module rwa::rwa {
         // 白名单不存在
         assert!(vec_set::contains(&config.whitelist, &user), ENotRwaWhitelist);
         vec_set::remove(&mut config.whitelist, &user);
+        event::emit(RwaWhitelistChangedEvent { user, operate: b"remove" })
     }
 
     // 发布rwa project
-    public entry fun publish_rwa_project<X, Y>(config: &mut RwaConfig, project_id: vector<u8>, price: u64, x_tokens: vector<Coin<X>>, ctx: &mut tx_context::TxContext) {
+    public entry fun publish_rwa_project<X, Y>(config: &mut RwaConfig, project_key: vector<u8>, price: u64, x_tokens: vector<Coin<X>>, ctx: &mut tx_context::TxContext) {
         assert!(config.version == VERSION, EVersionNotMatched);
 
-        // price_num单价分子部分，price_den单价分母部分，所以price_num/price_den构成单价
-        let price = ratio::ratio(price, PRICE_SCALING);
+        let price_ratio = ratio::ratio(price, PRICE_SCALING);
 
         let sender = tx_context::sender(ctx);
         // 非白名单不允许发布RWA项目
         assert!(vec_set::contains(&config.whitelist, &sender), ENotRwaWhitelist);
 
-        // 判断project_id是否存在
-        assert!(!object_bag::contains(&config.projects, project_id), EProjectIdExists);
+        // 判断project_key是否存在
+        assert!(!object_bag::contains(&config.projects, project_key), EProjectIdExists);
 
         // 初始化token，允许x_tokens为空，这样允许后面再追加
         let x_balance = utils::coins_into_balance(x_tokens);
+        let x_balance_value = balance::value(&x_balance);
+
+        let project_uid = object::new(ctx);
+        let project_id = object::uid_to_inner(&project_uid);
 
         // 添加
-        object_bag::add(&mut config.projects, project_id, RwaProject<X, Y> {
-            id: object::new(ctx),
-            project_id,
+        object_bag::add(&mut config.projects, project_key, RwaProject<X, Y> {
+            id: project_uid,
+            project_key,
             admin: sender,
             financier: sender,
-            price: price,
-            rwa_token_total_supply: balance::value(&x_balance),
+            price: price_ratio,
+            rwa_token_total_supply: x_balance_value,
             rwa_token_reserve: x_balance,
             total_revenue: 0,
             revenue_reserve: balance::zero(),
         });
+
+        event::emit(RwaProjectPublishEvent {
+            project_id,
+            project_key,
+            admin: sender,
+            financier: sender,
+            price,
+            rwa_token_total_supply: x_balance_value,
+            rwa_token_reserve: x_balance_value,
+            total_revenue: 0,
+            revenue_reserve: 0
+        });
     }
     
     // 更改rwa项目管理员
-    public entry fun set_rwa_project_admin<X, Y>(config: &mut RwaConfig, project_id: vector<u8>, new_project_admin: address, ctx: &mut tx_context::TxContext) {
+    public entry fun set_rwa_project_admin<X, Y>(config: &mut RwaConfig, project_key: vector<u8>, new_project_admin: address, ctx: &mut tx_context::TxContext) {
         assert!(config.version == VERSION, EVersionNotMatched);
 
         let sender = tx_context::sender(ctx);
 
-        // 判断project_id是否存在
-        assert!(object_bag::contains(&config.projects, project_id), ERwaProjectNotFound);
+        // 判断project_key是否存在
+        assert!(object_bag::contains(&config.projects, project_key), ERwaProjectNotFound);
 
-        let project = object_bag::borrow_mut<vector<u8>, RwaProject<X, Y>>(&mut config.projects, project_id);
+        let project = object_bag::borrow_mut<vector<u8>, RwaProject<X, Y>>(&mut config.projects, project_key);
         // 判断是否有权限
         assert!(project.admin == sender, ENotProjectAdmin);
 
@@ -160,15 +206,15 @@ module rwa::rwa {
     }
 
     // 更改rwa项目财务
-    public entry fun set_rwa_project_financier<X, Y>(config: &mut RwaConfig, project_id: vector<u8>, new_project_financier: address, ctx: &mut tx_context::TxContext) {
+    public entry fun set_rwa_project_financier<X, Y>(config: &mut RwaConfig, project_key: vector<u8>, new_project_financier: address, ctx: &mut tx_context::TxContext) {
         assert!(config.version == VERSION, EVersionNotMatched);
 
         let sender = tx_context::sender(ctx);
 
-        // 判断project_id是否存在
-        assert!(object_bag::contains(&config.projects, project_id), ERwaProjectNotFound);
+        // 判断project_key是否存在
+        assert!(object_bag::contains(&config.projects, project_key), ERwaProjectNotFound);
 
-        let project = object_bag::borrow_mut<vector<u8>, RwaProject<X, Y>>(&mut config.projects, project_id);
+        let project = object_bag::borrow_mut<vector<u8>, RwaProject<X, Y>>(&mut config.projects, project_key);
         // 判断是否有权限
         assert!(project.admin == sender, ENotProjectAdmin);
 
@@ -176,17 +222,17 @@ module rwa::rwa {
     }
 
     // 更改rwa token单价
-    public entry fun set_rwa_project_token_price<X, Y>(config: &mut RwaConfig, project_id: vector<u8>, new_price: u64, ctx: &mut tx_context::TxContext) {
+    public entry fun set_rwa_project_token_price<X, Y>(config: &mut RwaConfig, project_key: vector<u8>, new_price: u64, ctx: &mut tx_context::TxContext) {
         assert!(config.version == VERSION, EVersionNotMatched);
         // 新单价
         let new_price = ratio::ratio(new_price, PRICE_SCALING);
 
         let sender = tx_context::sender(ctx);
 
-        // 判断project_id是否存在
-        assert!(object_bag::contains(&config.projects, project_id), ERwaProjectNotFound);
+        // 判断project_key是否存在
+        assert!(object_bag::contains(&config.projects, project_key), ERwaProjectNotFound);
 
-        let project = object_bag::borrow_mut<vector<u8>, RwaProject<X, Y>>(&mut config.projects, project_id);
+        let project = object_bag::borrow_mut<vector<u8>, RwaProject<X, Y>>(&mut config.projects, project_key);
         // 判断是否有权限
         assert!(project.admin == sender, ENotProjectAdmin);
 
@@ -194,16 +240,16 @@ module rwa::rwa {
     }
 
     // 追加rwa project token
-    public entry fun increase_rwa_project_token<X, Y>(config: &mut RwaConfig, project_id: vector<u8>, x_tokens: vector<Coin<X>>, ctx: &mut tx_context::TxContext) {
+    public entry fun increase_rwa_project_token<X, Y>(config: &mut RwaConfig, project_key: vector<u8>, x_tokens: vector<Coin<X>>, ctx: &mut tx_context::TxContext) {
         assert!(config.version == VERSION, EVersionNotMatched);
         assert!(!vector::is_empty(&x_tokens), ECoinsEmpty);
 
         let sender = tx_context::sender(ctx);
 
-        // 判断project_id是否存在
-        assert!(object_bag::contains(&config.projects, project_id), ERwaProjectNotFound);
+        // 判断project_key是否存在
+        assert!(object_bag::contains(&config.projects, project_key), ERwaProjectNotFound);
 
-        let project = object_bag::borrow_mut<vector<u8>, RwaProject<X, Y>>(&mut config.projects, project_id);
+        let project = object_bag::borrow_mut<vector<u8>, RwaProject<X, Y>>(&mut config.projects, project_key);
         // 判断是否有权限
         assert!(project.admin == sender, ENotProjectAdmin);
         
@@ -213,7 +259,7 @@ module rwa::rwa {
     }
 
     // 购买rwa project token
-    public entry fun buy_rwa_project_token<X, Y>(config: &mut RwaConfig, project_id: vector<u8>, y_tokens: vector<Coin<Y>>, buy_num: u64, ctx: &mut tx_context::TxContext) {
+    public entry fun buy_rwa_project_token<X, Y>(config: &mut RwaConfig, project_key: vector<u8>, y_tokens: vector<Coin<Y>>, buy_num: u64, ctx: &mut tx_context::TxContext) {
         assert!(config.version == VERSION, EVersionNotMatched);
         assert!(buy_num > 0, EBuyNumZero);
         assert!(!vector::is_empty(&y_tokens), ECoinsEmpty);
@@ -221,10 +267,10 @@ module rwa::rwa {
 
         let sender = tx_context::sender(ctx);
 
-        // 判断project_id是否存在
-        assert!(object_bag::contains(&config.projects, project_id), ERwaProjectNotFound);
+        // 判断project_key是否存在
+        assert!(object_bag::contains(&config.projects, project_key), ERwaProjectNotFound);
 
-        let project = object_bag::borrow_mut<vector<u8>, RwaProject<X, Y>>(&mut config.projects, project_id);
+        let project = object_bag::borrow_mut<vector<u8>, RwaProject<X, Y>>(&mut config.projects, project_key);
 
         // 计算购买buy_num需要金额
         let amount = ratio::partial(project.price, buy_num);
