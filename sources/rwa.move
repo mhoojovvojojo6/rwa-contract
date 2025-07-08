@@ -24,7 +24,7 @@ module rwa::rwa {
     const ENotProjectFinancier: u64 = 10003;            // 非RWA项目财务
     const ENotRwaWhitelist: u64 = 10004;                // 非RWA白名单，不允许发布RWA项目
     const EAlreadyRwaWhitelist: u64 = 10005;            // 已经是RWA白名单
-    const EProjectIdExists: u64 = 10006;                // project_key重复
+    const EProjectKeyExists: u64 = 10006;               // project_key重复
     const ERwaProjectNotFound: u64 = 10007;             // RWA project项目未找到
     const ECoinsEmpty: u64 = 10008;                     // 输入vector<Coin>为空
     const EBuyNumZero: u64 = 10009;                     // 购买数量为0
@@ -65,6 +65,17 @@ module rwa::rwa {
         total_revenue: u64,
         // 用户购买RWA代币收入剩余量（因为存在提现/分红等行为，该量总量不等于total_revenue，并且财务也可能充钱进去）
         revenue_reserve: Balance<Y>,        
+    }
+    struct RwaProjectInfo<phantom X, phantom Y> has copy, drop {
+        project_id: ID,
+        project_key: vector<u8>,
+        admin: address,
+        financier: address,
+        price: u64,
+        rwa_token_total_supply: u64,
+        rwa_token_reserve: u64,
+        total_revenue: u64,
+        revenue_reserve: u64
     }
 
     // 事件
@@ -185,7 +196,7 @@ module rwa::rwa {
         assert!(vec_set::contains(&config.whitelist, &sender), ENotRwaWhitelist);
 
         // 判断project_key是否存在
-        assert!(!object_bag::contains(&config.projects, project_key), EProjectIdExists);
+        assert!(!object_bag::contains(&config.projects, project_key), EProjectKeyExists);
 
         // 初始化token，允许x_tokens为空，这样允许后面再追加
         let x_balance = utils::coins_into_balance(x_tokens);
@@ -218,6 +229,25 @@ module rwa::rwa {
             total_revenue: 0,
             revenue_reserve: 0
         });
+    }
+
+    // 获取rwa project信息
+    public fun get_rwa_project_info<X, Y>(config: &RwaConfig, project_key: vector<u8>): RwaProjectInfo<X, Y> {
+        assert!(config.version == VERSION, EVersionNotMatched);
+        assert!(object_bag::contains(&config.projects, project_key), ERwaProjectNotFound);
+
+        let project = object_bag::borrow<vector<u8>, RwaProject<X, Y>>(&config.projects, project_key);
+        RwaProjectInfo<X, Y> {
+            project_id: object::uid_to_inner(&project.id),
+            project_key,
+            admin: project.admin,
+            financier: project.financier,
+            price: ratio::partial(project.price, PRICE_SCALING),
+            rwa_token_total_supply: project.rwa_token_total_supply,
+            rwa_token_reserve: balance::value(&project.rwa_token_reserve),
+            total_revenue: project.total_revenue,
+            revenue_reserve: balance::value(&project.revenue_reserve),
+        }
     }
     
     // 更改rwa项目管理员
