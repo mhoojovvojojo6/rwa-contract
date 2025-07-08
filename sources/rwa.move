@@ -79,7 +79,7 @@ module rwa::rwa {
         user: address,
         operate: vector<u8>
     }
-    struct RwaProjectPublishEvent has copy, drop {
+    struct RwaProjectPublishEvent<phantom X, phantom Y> has copy, drop {
         project_id: ID,
         project_key: vector<u8>,
         admin: address,
@@ -90,35 +90,34 @@ module rwa::rwa {
         total_revenue: u64,
         revenue_reserve: u64
     }
-    struct RwaProjectAdminChangedEvent has copy, drop {
+    struct RwaProjectAdminChangedEvent<phantom X, phantom Y> has copy, drop {
         old_admin: address,
         new_admin: address,
         project_id: ID,
         project_key: vector<u8>
     }
-    struct RwaProjectFinancierChangedEvent has copy, drop {
+    struct RwaProjectFinancierChangedEvent<phantom X, phantom Y> has copy, drop {
         old_financier: address,
         new_financier: address,
         project_id: ID,
         project_key: vector<u8>
     }
-    struct RwaProjectPriceChangedEvent has copy, drop {
+    struct RwaProjectPriceChangedEvent<phantom X, phantom Y> has copy, drop {
         old_price: u64,
         new_price: u64,
         project_id: ID,
         project_key: vector<u8>
     }
-    struct RwaProjectTokenIncreaseEvent has copy, drop {
+    struct RwaProjectTokenIncreaseEvent<phantom X, phantom Y> has copy, drop {
         increase_supply: u64,
         project_id: ID,
         project_key: vector<u8>
     }
-    struct RwaProjectTokenBuyEvent has copy, drop {
+    struct RwaProjectTokenBuyEvent<phantom X, phantom Y> has copy, drop {
         user: address,
         price: u64,
-        spend_amount: u64
+        spend_amount: u64,
         buy_num: u64,
-        buy_token_id: ID,
         project_id: ID,
         project_key: vector<u8>
     }
@@ -208,7 +207,7 @@ module rwa::rwa {
             revenue_reserve: balance::zero(),
         });
 
-        event::emit(RwaProjectPublishEvent {
+        event::emit(RwaProjectPublishEvent<X, Y> {
             project_id,
             project_key,
             admin: sender,
@@ -237,7 +236,7 @@ module rwa::rwa {
         let old_admin = project.admin;
         project.admin = new_admin;
 
-        event::emit(RwaProjectAdminChangedEvent {
+        event::emit(RwaProjectAdminChangedEvent<X, Y> {
             old_admin,
             new_admin,
             project_id: object::uid_to_inner(&project.id),
@@ -261,7 +260,7 @@ module rwa::rwa {
         let old_financier = project.financier;
         project.financier = new_financier;
 
-        event::emit(RwaProjectFinancierChangedEvent {
+        event::emit(RwaProjectFinancierChangedEvent<X, Y> {
             old_financier,
             new_financier,
             project_id: object::uid_to_inner(&project.id),
@@ -287,7 +286,7 @@ module rwa::rwa {
         let old_price = ratio::partial(project.price, PRICE_SCALING);
         project.price = new_price_ratio;
 
-        event::emit(RwaProjectPriceChangedEvent {
+        event::emit(RwaProjectPriceChangedEvent<X, Y> {
             old_price,
             new_price,
             project_id: object::uid_to_inner(&project.id),
@@ -314,7 +313,7 @@ module rwa::rwa {
         project.rwa_token_total_supply = project.rwa_token_total_supply + x_balance_value;
         balance::join(&mut project.rwa_token_reserve, x_balance);
 
-        event::emit(RwaProjectTokenIncreaseEvent {
+        event::emit(RwaProjectTokenIncreaseEvent<X, Y> {
             increase_supply: x_balance_value,
             project_id: object::uid_to_inner(&project.id),
             project_key
@@ -349,16 +348,14 @@ module rwa::rwa {
         let spend_x_balance = balance::split(&mut project.rwa_token_reserve, buy_num);
         // 转为Coin<X>，然后转给用户
         let spend_x_tokens = coin::from_balance(spend_x_balance, ctx);
-        let spend_x_tokens_id = object::uid_to_inner(&spend_x_tokens);
         // 转为用户
         transfer::public_transfer(spend_x_tokens, sender);
 
-        event::emit(RwaProjectTokenBuyEvent {
+        event::emit(RwaProjectTokenBuyEvent<X, Y> {
             user: sender,
             price: ratio::partial(project.price, PRICE_SCALING),
             spend_amount: amount,
             buy_num,
-            buy_token_id: spend_x_tokens_id,
             project_id: object::uid_to_inner(&project.id),
             project_key
         });
