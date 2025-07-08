@@ -90,6 +90,38 @@ module rwa::rwa {
         total_revenue: u64,
         revenue_reserve: u64
     }
+    struct RwaProjectAdminChangedEvent has copy, drop {
+        old_admin: address,
+        new_admin: address,
+        project_id: ID,
+        project_key: vector<u8>
+    }
+    struct RwaProjectFinancierChangedEvent has copy, drop {
+        old_financier: address,
+        new_financier: address,
+        project_id: ID,
+        project_key: vector<u8>
+    }
+    struct RwaProjectPriceChangedEvent has copy, drop {
+        old_price: u64,
+        new_price: u64,
+        project_id: ID,
+        project_key: vector<u8>
+    }
+    struct RwaProjectTokenIncreaseEvent has copy, drop {
+        increase_supply: u64,
+        project_id: ID,
+        project_key: vector<u8>
+    }
+    struct RwaProjectTokenBuyEvent has copy, drop {
+        user: address,
+        price: u64,
+        spend_amount: u64
+        buy_num: u64,
+        buy_token_id: ID,
+        project_id: ID,
+        project_key: vector<u8>
+    }
 
     fun init(otw: RWA, ctx: &mut TxContext) {
         package::claim_and_keep(otw, ctx);
@@ -190,7 +222,7 @@ module rwa::rwa {
     }
     
     // 更改rwa项目管理员
-    public entry fun set_rwa_project_admin<X, Y>(config: &mut RwaConfig, project_key: vector<u8>, new_project_admin: address, ctx: &mut tx_context::TxContext) {
+    public entry fun set_rwa_project_admin<X, Y>(config: &mut RwaConfig, project_key: vector<u8>, new_admin: address, ctx: &mut tx_context::TxContext) {
         assert!(config.version == VERSION, EVersionNotMatched);
 
         let sender = tx_context::sender(ctx);
@@ -202,11 +234,19 @@ module rwa::rwa {
         // 判断是否有权限
         assert!(project.admin == sender, ENotProjectAdmin);
 
-        project.admin = new_project_admin;
+        let old_admin = project.admin;
+        project.admin = new_admin;
+
+        event::emit(RwaProjectAdminChangedEvent {
+            old_admin,
+            new_admin,
+            project_id: object::uid_to_inner(&project.id),
+            project_key
+        })
     }
 
     // 更改rwa项目财务
-    public entry fun set_rwa_project_financier<X, Y>(config: &mut RwaConfig, project_key: vector<u8>, new_project_financier: address, ctx: &mut tx_context::TxContext) {
+    public entry fun set_rwa_project_financier<X, Y>(config: &mut RwaConfig, project_key: vector<u8>, new_financier: address, ctx: &mut tx_context::TxContext) {
         assert!(config.version == VERSION, EVersionNotMatched);
 
         let sender = tx_context::sender(ctx);
@@ -218,14 +258,22 @@ module rwa::rwa {
         // 判断是否有权限
         assert!(project.admin == sender, ENotProjectAdmin);
 
-        project.financier = new_project_financier;
+        let old_financier = project.financier;
+        project.financier = new_financier;
+
+        event::emit(RwaProjectFinancierChangedEvent {
+            old_financier,
+            new_financier,
+            project_id: object::uid_to_inner(&project.id),
+            project_key
+        })
     }
 
     // 更改rwa token单价
     public entry fun set_rwa_project_token_price<X, Y>(config: &mut RwaConfig, project_key: vector<u8>, new_price: u64, ctx: &mut tx_context::TxContext) {
         assert!(config.version == VERSION, EVersionNotMatched);
         // 新单价
-        let new_price = ratio::ratio(new_price, PRICE_SCALING);
+        let new_price_ratio = ratio::ratio(new_price, PRICE_SCALING);
 
         let sender = tx_context::sender(ctx);
 
@@ -236,7 +284,15 @@ module rwa::rwa {
         // 判断是否有权限
         assert!(project.admin == sender, ENotProjectAdmin);
 
-        project.price = new_price;
+        let old_price = ratio::partial(project.price, PRICE_SCALING);
+        project.price = new_price_ratio;
+
+        event::emit(RwaProjectPriceChangedEvent {
+            old_price,
+            new_price,
+            project_id: object::uid_to_inner(&project.id),
+            project_key
+        })
     }
 
     // 追加rwa project token
@@ -254,8 +310,15 @@ module rwa::rwa {
         assert!(project.admin == sender, ENotProjectAdmin);
         
         let x_balance = utils::coins_into_balance(x_tokens);
-        project.rwa_token_total_supply = project.rwa_token_total_supply + balance::value(&x_balance);
+        let x_balance_value = balance::value(&x_balance);
+        project.rwa_token_total_supply = project.rwa_token_total_supply + x_balance_value;
         balance::join(&mut project.rwa_token_reserve, x_balance);
+
+        event::emit(RwaProjectTokenIncreaseEvent {
+            increase_supply: x_balance_value,
+            project_id: object::uid_to_inner(&project.id),
+            project_key
+        });
     }
 
     // 购买rwa project token
@@ -286,7 +349,18 @@ module rwa::rwa {
         let spend_x_balance = balance::split(&mut project.rwa_token_reserve, buy_num);
         // 转为Coin<X>，然后转给用户
         let spend_x_tokens = coin::from_balance(spend_x_balance, ctx);
+        let spend_x_tokens_id = object::uid_to_inner(&spend_x_tokens);
         // 转为用户
         transfer::public_transfer(spend_x_tokens, sender);
+
+        event::emit(RwaProjectTokenBuyEvent {
+            user: sender,
+            price: ratio::partial(project.price, PRICE_SCALING),
+            spend_amount: amount,
+            buy_num,
+            buy_token_id: spend_x_tokens_id,
+            project_id: object::uid_to_inner(&project.id),
+            project_key
+        });
     }
 }
