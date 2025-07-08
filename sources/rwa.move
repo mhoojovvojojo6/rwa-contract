@@ -13,6 +13,8 @@ module rwa::rwa {
 
     // 版本
     const VERSION: u64 = 0;
+    // 单价缩放比例（单价ratio的分母部分，当分子为1000000时，表示1：1）
+    const PRICE_SCALING: u64 = 1000000;
 
     // 错误码
     const EVersionNotMatched: u64 = 100000;             // 版本不一致
@@ -111,11 +113,11 @@ module rwa::rwa {
     }
 
     // 发布rwa project
-    public entry fun publish_rwa_project<X, Y>(config: &mut RwaConfig, project_id: vector<u8>, price_num: u64, price_den: u64, x_tokens: vector<Coin<X>>, ctx: &mut tx_context::TxContext) {
+    public entry fun publish_rwa_project<X, Y>(config: &mut RwaConfig, project_id: vector<u8>, price: u64, x_tokens: vector<Coin<X>>, ctx: &mut tx_context::TxContext) {
         assert!(config.version == VERSION, EVersionNotMatched);
 
         // price_num单价分子部分，price_den单价分母部分，所以price_num/price_den构成单价
-        let price = ratio::ratio(price_num, price_den);
+        let price = ratio::ratio(price, PRICE_SCALING);
 
         let sender = tx_context::sender(ctx);
         // 非白名单不允许发布RWA项目
@@ -174,10 +176,10 @@ module rwa::rwa {
     }
 
     // 更改rwa token单价
-    public entry fun set_rwa_project_token_price<X, Y>(config: &mut RwaConfig, project_id: vector<u8>, new_price_num: u64, new_price_den: u64, ctx: &mut tx_context::TxContext) {
+    public entry fun set_rwa_project_token_price<X, Y>(config: &mut RwaConfig, project_id: vector<u8>, new_price: u64, ctx: &mut tx_context::TxContext) {
         assert!(config.version == VERSION, EVersionNotMatched);
         // 新单价
-        let new_price = ratio::ratio(new_price_num, new_price_den);
+        let new_price = ratio::ratio(new_price, PRICE_SCALING);
 
         let sender = tx_context::sender(ctx);
 
