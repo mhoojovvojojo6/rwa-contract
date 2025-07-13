@@ -630,7 +630,7 @@ module rwa::rwa {
     }
 
     // 用户提取分红
-    public entry fun claim_rwa_project_dividend_funds(config: &mut RwaConfig, project_key: vector<u8>, record_key: vector<u8>, amount: u64, recipient: address, ctx: &mut tx_context::TxContext) {
+    public entry fun claim_rwa_project_dividend_funds<X, Y>(config: &mut RwaConfig, project_key: vector<u8>, record_key: vector<u8>, amount: u64, recipient: address, ctx: &mut tx_context::TxContext) {
         assert!(config.version == VERSION, EVersionNotMatched);
         assert!(!config.paused, ERwaPaused);
         assert!(amount > 0, EAmountZero);
