@@ -53,4 +53,20 @@ module rwa::utils {
             coin::destroy_zero(c);
         }
     }
+
+    public fun has_duplicate<T: copy + drop + store>(v: &vector<T>): bool {
+        let n = vector::length(v);
+        let i = 0;
+        while (i < n) {
+            let j = i + 1;
+            while (j < n) {
+                if (*vector::borrow(v, i) == *vector::borrow(v, j)) {
+                    return true
+                };
+                j = j + 1;
+            };
+            i = i + 1;
+        };
+        false
+    }
 }
