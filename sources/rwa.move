@@ -40,6 +40,7 @@ module rwa::rwa {
     const EParticipatingDividendsOverlimit: u64 = 10018;              // 参与分红的金额超限
     const EInsufficientDividendFundsReserve: u64 = 10019;             // 剩余可用分红的金额不足
     const EDuplicateDividendAccount: u64 = 10020;                     // 在同一分红批次中，参与分红的账户不允许重复
+    const EAmountZero: u64 = 10021;                                   // 管理员提取收入，用户提取分红，不能为0
 
     struct RWA has drop {}
 
@@ -183,6 +184,23 @@ module rwa::rwa {
         record_key: vector<u8>,
         user: address,
         dividend_income: u64
+    }
+    struct RwaProjectRevenueWithdrawEvent<phantom X, phantom Y> has copy, drop {
+        project_id: ID,
+        project_key: vector<u8>,
+        admin: address,
+        recipient: address,
+        amount: u64
+    }
+    struct RwaProjectDDividendFundsClaimEvent<phantom X, phantom Y> has copy, drop {
+        project_id: ID,
+        project_key: vector<u8>,
+        nth: u64,
+        record_id: ID,
+        record_key: vector<u8>,
+        user: address,
+        recipient: address,
+        amount: u64
     }
 
     fun init(otw: RWA, ctx: &mut TxContext) {
@@ -576,5 +594,76 @@ module rwa::rwa {
                 dividend_income
             });
         };
+    }
+
+    // 项目管理员提取
+    public entry fun withdraw_rwa_project_revenue<X, Y>(config: &mut RwaConfig, project_key: vector<u8>, amount: u64, recipient: address, ctx: &mut tx_context::TxContext) {
+        assert!(config.version == VERSION, EVersionNotMatched);
+        assert!(!config.paused, ERwaPaused);
+        assert!(amount > 0, EAmountZero);
+
+        let sender = tx_context::sender(ctx);
+
+        // 判断project_key是否存在
+        assert!(object_bag::contains(&config.projects, project_key), ERwaProjectNotFound);
+
+        let project = object_bag::borrow_mut<vector<u8>, RwaProject<X, Y>>(&mut config.projects, project_key);
+        // 判断是否有权限
+        assert!(project.admin == sender, ENotProjectAdmin);
+        let project_id = object::uid_to_inner(&project.id);
+
+        // 扣除合约的剩余总收入
+        let withdraw_balance = balance::split(&mut project.remaining_revenue_balance, amount);
+        // 转为Coin<X>，然后转给用户
+        let withdraw_coin = coin::from_balance(withdraw_balance, ctx);
+        // 转为接收者
+        transfer::public_transfer(withdraw_coin, recipient);
+
+        // 事件
+        event::emit(RwaProjectRevenueWithdrawEvent<X, Y> {
+            project_id,
+            project_key,
+            admin: sender,
+            recipient,
+            amount
+        });     
+    }
+
+    // 用户提取分红
+    public entry fun claim_rwa_project_dividend_funds(config: &mut RwaConfig, project_key: vector<u8>, record_key: vector<u8>, amount: u64, recipient: address, ctx: &mut tx_context::TxContext) {
+        assert!(config.version == VERSION, EVersionNotMatched);
+        assert!(!config.paused, ERwaPaused);
+        assert!(amount > 0, EAmountZero);
+
+        let sender = tx_context::sender(ctx);
+
+        // 判断project_key是否存在
+        assert!(object_bag::contains(&config.projects, project_key), ERwaProjectNotFound);
+
+        let project = object_bag::borrow_mut<vector<u8>, RwaProject<X, Y>>(&mut config.projects, project_key);
+        let project_id = object::uid_to_inner(&project.id);
+
+        // 分红记录
+        let record = object_bag::borrow_mut<vector<u8>, DividendBatchRecord<Y>>(&mut project.dividend_records, record_key);
+        let record_id = object::uid_to_inner(&record.id);
+
+        // 扣除合约的剩余总收入
+        let claim_balance = balance::split(&mut record.remaining_dividend_funds_balance, amount);
+        // 转为Coin<X>，然后转给用户
+        let claim_coin = coin::from_balance(claim_balance, ctx);
+        // 转为接收者
+        transfer::public_transfer(claim_coin, recipient);
+
+        // 事件
+        event::emit(RwaProjectDDividendFundsClaimEvent<X, Y> {
+            project_id,
+            project_key,
+            nth: record.nth,
+            record_id,
+            record_key,
+            user: sender,
+            recipient,
+            amount
+        });
     }
 }
