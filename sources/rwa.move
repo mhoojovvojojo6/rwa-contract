@@ -39,6 +39,7 @@ module rwa::rwa {
     const ERemainingDividendRwaTotalZero: u64 = 10017;                // 分红追加账户参与分红的rwa token超限
     const EParticipatingDividendsOverlimit: u64 = 10018;              // 参与分红的金额超限
     const EInsufficientDividendFundsReserve: u64 = 10019;             // 剩余可用分红的金额不足
+    const EDuplicateDividendAccount: u64 = 10020;                     // 在同一分红批次中，参与分红的账户不允许重复
 
     struct RWA has drop {}
 
@@ -498,6 +499,15 @@ module rwa::rwa {
         assert!(!config.paused, ERwaPaused);
         assert!(!vector::is_empty(&users), EParticipatingUserEmpty);
         assert!(vector::length(&users) != vector::length(&participating_dividends), EUsersAndParticipatingDividendsNotMatch);
+        // 分红账户不能重复
+        let set = vec_set::empty();
+        let i = 0;
+        let n = vector::length(&users);
+        while (i < n) {
+            let user = *vector::borrow(&users, i);
+            assert!(!vec_set::contains(&set, &user), EDuplicateDividendAccount);
+            i = i + 1;
+        };
 
         let sender = tx_context::sender(ctx);
 
@@ -521,8 +531,8 @@ module rwa::rwa {
 
         // 防止越界，使用范围大一点的进行累计
         let participating_dividend_total: u128 = 0;
-        let n = vector::length(&users);
         let i = 0;
+        let n = vector::length(&users);
         while (i < n) {
             participating_dividend_total = participating_dividend_total + (*vector::borrow(&participating_dividends, i) as u128);
             assert!(participating_dividend_total > (remaining_dividend_rwa_total as u128), EParticipatingDividendsOverlimit);
@@ -537,6 +547,11 @@ module rwa::rwa {
             let user = vector::pop_back(&mut users);
             let participating_dividend = vector::pop_back(&mut participating_dividends);
 
+            // 判断分红账户同一批次是否重复
+            assert!(table::contains(&record.dividend_list, user), EDuplicateDividendAccount);
+            // 添加分红账户信息
+            table::add(&mut record.dividend_list, user, participating_dividend);
+
             // 计算用于分红
             let dividend_income = ratio::partial(dividend_ratio, participating_dividend);
             // 给用户转币
@@ -546,6 +561,7 @@ module rwa::rwa {
             let spend_y_tokens = coin::from_balance(spend_y_balance, ctx);
             // 转为用户
             transfer::public_transfer(spend_y_tokens, user);
+
             // 用户分红收益事件
             event::emit(RwaProjectUserDividendIncomeEvent<X, Y> {
                 project_id,
